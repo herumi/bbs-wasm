@@ -1,0 +1,30 @@
+name: test
+on: [push]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        submodules: recursive
+    - name: node
+      uses: actions/setup-node@v6
+      with:
+        node-version: "24"
+    - name: Install pnpm
+      uses: pnpm/action-setup@v6
+    # src/bbs_c.js is not committed, so the wasm is built from src/mcl here.
+    # clang-21, wasm-ld-21 and wasm-opt (binaryen) are required by the Makefile.
+    - name: Install build dependencies
+      run: |
+        wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 21
+        sudo apt-get update
+        sudo apt-get install -y binaryen
+    - run: pnpm install
+    - run: pnpm test
+    - run: pnpm run lint

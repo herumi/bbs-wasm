@@ -1,4 +1,4 @@
-MCL_DIR?=../mcl
+MCL_DIR?=./src/mcl
 include $(MCL_DIR)/common.mk
 
 # The C/C++ sources of BBS live in mcl:
