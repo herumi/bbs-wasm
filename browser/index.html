@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-ja="BBS署名デモ - 選択的開示可能な署名" data-en="BBS Signature Demo - Selective Disclosure Signatures">BBS署名デモ - 選択的開示可能な署名</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 言語切り替えボタン -->
+        <div class="language-switcher">
+            <button id="langJa" class="lang-btn active" onclick="switchLanguage('ja')">日本語</button>
+            <button id="langEn" class="lang-btn" onclick="switchLanguage('en')">English</button>
+        </div>
+
+        <div class="header">
+            <h1 data-ja="BBS署名デモ" data-en="BBS Signature Demo">BBS署名デモ</h1>
+            <p data-ja="選択的開示可能な署名システムのブラウザデモ" data-en="Browser demo of selective disclosure signature system">選択的開示可能な署名システムのブラウザデモ</p>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('keygen')" data-ja="鍵生成" data-en="Key Generation">鍵生成</button>
+            <button class="tab" onclick="showTab('sign')" data-ja="署名生成" data-en="Signature Generation">署名生成</button>
+            <button class="tab" onclick="showTab('verify')" data-ja="署名検証" data-en="Signature Verification">署名検証</button>
+            <button class="tab" onclick="showTab('proof')" data-ja="証明生成" data-en="Proof Generation">証明生成</button>
+            <button class="tab" onclick="showTab('proof-verify')" data-ja="証明検証" data-en="Proof Verification">証明検証</button>
+        </div>
+
+        <!-- 鍵生成タブ -->
+        <div id="keygen" class="tab-content active">
+            <h2 data-ja="鍵生成" data-en="Key Generation">鍵生成</h2>
+            <p data-ja="BBS署名に必要な秘密鍵と公開鍵を生成します。" data-en="Generate the secret key and public key required for BBS signatures.">BBS署名に必要な秘密鍵と公開鍵を生成します。</p>
+            
+            <button id="generateKeys" class="btn" onclick="generateKeys()">
+                <span id="keygenLoading" class="loading" style="display: none;"></span>
+                <span data-ja="鍵を生成" data-en="Generate Keys">鍵を生成</span>
+            </button>
+
+            <div id="keygenResult" class="result" style="display: none;">
+                <h3 data-ja="生成された鍵" data-en="Generated Keys">生成された鍵</h3>
+                <div class="info-grid">
+                    <div class="info-card">
+                        <h4 data-ja="秘密鍵 (最初32バイト)" data-en="Secret Key (first 32 bytes)">秘密鍵 (最初32バイト)</h4>
+                        <div id="secretKeyPreview"></div>
+                    </div>
+                    <div class="info-card">
+                        <h4 data-ja="公開鍵 (最初32バイト)" data-en="Public Key (first 32 bytes)">公開鍵 (最初32バイト)</h4>
+                        <div id="publicKeyPreview"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 署名生成タブ -->
+        <div id="sign" class="tab-content">
+            <h2 data-ja="署名生成" data-en="Signature Generation">署名生成</h2>
+            <p data-ja="個人情報を入力して署名を生成します。" data-en="Enter personal information to generate a signature.">個人情報を入力して署名を生成します。</p>
+
+            <form id="signForm">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="lastName" data-ja="姓" data-en="Last Name">姓</label>
+                        <input type="text" id="lastName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="firstName" data-ja="名" data-en="First Name">名</label>
+                        <input type="text" id="firstName" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="gender" data-ja="性別" data-en="Gender">性別</label>
+                    <select id="gender" required>
+                        <option value="" data-ja="選択してください" data-en="Please select">選択してください</option>
+                        <option value="男" data-ja="男" data-en="Male">男</option>
+                        <option value="女" data-ja="女" data-en="Female">女</option>
+                        <option value="その他" data-ja="その他" data-en="Other">その他</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="prefecture" data-ja="都道府県" data-en="Prefecture">都道府県</label>
+                        <input type="text" id="prefecture" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="city" data-ja="群市町村" data-en="City">群市町村</label>
+                        <input type="text" id="city" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="address" data-ja="住所（その続き）" data-en="Address (continued)">住所（その続き）</label>
+                    <input type="text" id="address" required>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="birthYear" data-ja="誕生年" data-en="Birth Year">誕生年</label>
+                        <input type="number" id="birthYear" min="1900" max="2100" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="birthMonth" data-ja="誕生月" data-en="Birth Month">誕生月</label>
+                        <input type="number" id="birthMonth" min="1" max="12" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="birthDay" data-ja="誕生日" data-en="Birth Day">誕生日</label>
+                        <input type="number" id="birthDay" min="1" max="31" required>
+                    </div>
+                </div>
+                <p class="note" data-ja="生年月日は整数 YYYYMMDD (例: 19960320) として署名されます。年齢条件の証明に使うためです。" data-en="The birth date is signed as an integer YYYYMMDD (e.g. 19960320) so that a condition of the age can be proven.">生年月日は整数 YYYYMMDD (例: 19960320) として署名されます。年齢条件の証明に使うためです。</p>
+
+                <button type="submit" class="btn" id="signBtn">
+                    <span id="signLoading" class="loading" style="display: none;"></span>
+                    <span data-ja="署名を生成" data-en="Generate Signature">署名を生成</span>
+                </button>
+            </form>
+
+            <div id="signResult" class="result" style="display: none;">
+                <h3 data-ja="生成された署名" data-en="Generated Signature">生成された署名</h3>
+                <div class="info-card">
+                    <h4 data-ja="署名 (最後32バイト)" data-en="Signature (last 32 bytes)">署名 (最後32バイト)</h4>
+                    <div id="signaturePreview"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 署名検証タブ -->
+        <div id="verify" class="tab-content">
+            <h2 data-ja="署名検証" data-en="Signature Verification">署名検証</h2>
+            <p data-ja="生成された署名の検証を行います。メッセージを編集して不正な入力での検証をテストできます。" data-en="Verify the generated signature. You can edit messages to test verification with invalid inputs.">生成された署名の検証を行います。メッセージを編集して不正な入力での検証をテストできます。</p>
+
+            <div id="verifyInfo" class="info-grid">
+                <div class="info-card">
+                    <h3 data-ja="署名対象の個人情報" data-en="Personal Information for Signature">署名対象の個人情報</h3>
+                    <div id="verifyMessages"></div>
+                </div>
+            </div>
+
+            <div id="verifyEditControls" class="edit-controls" style="display: none;">
+                <h3 data-ja="メッセージ編集（検証テスト用）" data-en="Message Editing (for verification testing)">メッセージ編集（検証テスト用）</h3>
+                <p data-ja="以下のフィールドを編集して不正な入力での検証をテストできます：" data-en="You can edit the following fields to test verification with invalid inputs:">以下のフィールドを編集して不正な入力での検証をテストできます：</p>
+                <div id="verifyEditFields"></div>
+                <button id="resetVerifyMessages" class="btn btn-secondary" onclick="resetVerifyMessages()" data-ja="元のメッセージに戻す" data-en="Restore Original Messages">元のメッセージに戻す</button>
+            </div>
+
+            <button id="verifyBtn" class="btn" onclick="verifySignature()" disabled>
+                <span id="verifyLoading" class="loading" style="display: none;"></span>
+                <span data-ja="署名を検証" data-en="Verify Signature">署名を検証</span>
+            </button>
+
+            <div id="verifyResult" class="result" style="display: none;"></div>
+        </div>
+
+        <!-- 証明生成タブ -->
+        <div id="proof" class="tab-content">
+            <h2 data-ja="選択的開示証明生成" data-en="Selective Disclosure Proof Generation">選択的開示証明生成</h2>
+            <p data-ja="個人情報の一部のみを開示する証明を生成します。生年月日は、開示せずに年齢条件 (18歳以上など) だけを証明することもできます。" data-en="Generate a proof that discloses only a portion of personal information. For the birth date, only a condition of the age (e.g. at least 18) can be proven without disclosing it.">個人情報の一部のみを開示する証明を生成します。生年月日は、開示せずに年齢条件 (18歳以上など) だけを証明することもできます。</p>
+
+            <div id="proofInfo" class="info-grid">
+                <div class="info-card">
+                    <h3 data-ja="署名対象の個人情報" data-en="Personal Information for Signature">署名対象の個人情報</h3>
+                    <div id="proofMessages"></div>
+                </div>
+            </div>
+
+            <div id="disclosureControls" class="disclosure-controls" style="display: none;">
+                <!-- 動的に生成される開示制御 -->
+            </div>
+
+            <button id="generateProofBtn" class="btn" onclick="generateProof()" disabled>
+                <span id="proofLoading" class="loading" style="display: none;"></span>
+                <span data-ja="証明を生成" data-en="Generate Proof">証明を生成</span>
+            </button>
+
+            <div id="proofResult" class="result" style="display: none;">
+                <h3 data-ja="生成された証明" data-en="Generated Proof">生成された証明</h3>
+                <div class="info-card">
+                    <h4 data-ja="証明 (最初32バイト)" data-en="Proof (first 32 bytes)">証明 (最初32バイト)</h4>
+                    <div id="proofPreview"></div>
+                </div>
+                <div id="proofStats" class="stats"></div>
+            </div>
+        </div>
+
+        <!-- 証明検証タブ -->
+        <div id="proof-verify" class="tab-content">
+            <h2 data-ja="証明検証" data-en="Proof Verification">証明検証</h2>
+            <p data-ja="選択的開示証明の検証を行います。検証者が知るのは、開示された項目と証明された条件だけです。" data-en="Verify the selective disclosure proof. The verifier learns only the disclosed items and the proven condition.">選択的開示証明の検証を行います。検証者が知るのは、開示された項目と証明された条件だけです。</p>
+
+            <div id="proofVerifyInfo" class="info-grid">
+                <div class="info-card">
+                    <h3 data-ja="開示された個人情報" data-en="Disclosed Personal Information">開示された個人情報</h3>
+                    <div id="proofVerifyMessages"></div>
+                </div>
+                <div class="info-card">
+                    <h3 data-ja="証明された条件" data-en="Proven Condition">証明された条件</h3>
+                    <div id="proofVerifyPreds"></div>
+                </div>
+            </div>
+
+            <div id="proofVerifyEditControls" class="edit-controls" style="display: none;">
+                <h3 data-ja="開示メッセージ編集（検証テスト用）" data-en="Disclosed Message Editing (for verification testing)">開示メッセージ編集（検証テスト用）</h3>
+                <p data-ja="以下のフィールドを編集して不正な入力での検証をテストできます。年齢のしきい値を変えても検証は失敗します (証明は生成時の条件に対するものなので、本人が新しい条件を満たしていても通りません)。" data-en="You can edit the following fields to test verification with invalid inputs. The verification also fails if a threshold of the age is changed (the proof is for the condition at the generation, so it is rejected even if the person satisfies the new condition).">以下のフィールドを編集して不正な入力での検証をテストできます。年齢のしきい値を変えても検証は失敗します (証明は生成時の条件に対するものなので、本人が新しい条件を満たしていても通りません)。</p>
+                <div id="proofVerifyEditFields"></div>
+                <button id="resetProofVerifyMessages" class="btn btn-secondary" onclick="resetProofVerifyMessages()" data-ja="元のメッセージに戻す" data-en="Restore Original Messages">元のメッセージに戻す</button>
+            </div>
+
+            <button id="verifyProofBtn" class="btn" onclick="verifyProof()" disabled>
+                <span id="proofVerifyLoading" class="loading" style="display: none;"></span>
+                <span data-ja="証明を検証" data-en="Verify Proof">証明を検証</span>
+            </button>
+
+            <div id="proofVerifyResult" class="result" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script src="bbs.js"></script>
+    <script src="demo.js"></script>
+</body>
+</html> 

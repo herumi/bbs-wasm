@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "lib": ["es2020", "dom"],
+    "module": "es2020",
+    "rootDir": "./",
+    "allowJs": true,
+    "declaration": false,
+    "outDir": "./browser",
+    "stripInternal": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "moduleResolution": "node"
+  },
+  "include": ["./src/bbs.ts", "./browser/demo.ts"],
+  "exclude": ["./src/index.ts", "./src/getRandomValues.ts"]
+}

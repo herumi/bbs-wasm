@@ -1,0 +1,56 @@
+{
+  "name": "bbs-wasm",
+  "version": "1.0.0",
+  "description": "BBS signature",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "pnpm run build:bbs_c.js && pnpm run build:dist",
+    "build:bbs_c.js": "make wasm",
+    "build:dist": "tsc -p tsconfig.dist.json",
+    "build:browser": "webpack --config webpack.config.mjs",
+    "build:browser:watch": "webpack --config webpack.config.mjs --watch",
+    "build:demo": "webpack --config webpack.demo.config.mjs",
+    "build:demo:watch": "webpack --config webpack.demo.config.mjs --watch",
+    "build:all": "pnpm run build && pnpm run build:browser && pnpm run build:demo",
+    "lint": "eslint",
+    "lint-fix": "eslint --fix",
+    "test": "make wasm && tsc -p tsconfig.dist.json && tsc --target es2020 --module commonjs test/test.ts && node test/test.js"
+  },
+  "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/herumi/bbs-wasm.git"
+  },
+  "keywords": [
+    "elliptic curve",
+    "WebAssembly",
+    "pairing"
+  ],
+  "files": [
+    "dist/*",
+    "browser/bbs.js",
+    "browser/package.json"
+  ],
+  "author": "herumi <herumi@nifty.com> (https://github.com/herumi/)",
+  "license": "BSD-3-Clause",
+  "bugs": {
+    "url": "https://github.com/herumi/bbs-wasm/issues"
+  },
+  "engines": {
+    "node": ">=14.17"
+  },
+  "homepage": "https://github.com/herumi/bbs-wasm#readme",
+  "devDependencies": {
+    "assert": "^2.1.0",
+    "eslint": "^9.39.5",
+    "neostandard": "^0.13.0",
+    "perf_hooks": "^0.0.1",
+    "ts-loader": "^9.6.2",
+    "typescript": "^4.9.5",
+    "webpack": "^5.111.1",
+    "webpack-cli": "^4.10.0"
+  },
+  "dependencies": {
+    "@types/node": "^20.19.43"
+  }
+}
