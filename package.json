@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "BBS signature",
   "main": "dist/index.js",
+  "packageManager": "pnpm@10.29.1",
   "scripts": {
     "build": "pnpm run build:bbs_c.js && pnpm run build:dist",
     "build:bbs_c.js": "make wasm",
