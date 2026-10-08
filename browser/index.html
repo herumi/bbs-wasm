@@ -109,7 +109,7 @@
                         <input type="number" id="birthDay" min="1" max="31" required>
                     </div>
                 </div>
-                <p class="note" data-ja="生年月日は整数 YYYYMMDD (例: 19960320) として署名されます。年齢条件の証明に使うためです。" data-en="The birth date is signed as an integer YYYYMMDD (e.g. 19960320) so that a condition of the age can be proven.">生年月日は整数 YYYYMMDD (例: 19960320) として署名されます。年齢条件の証明に使うためです。</p>
+                <p class="note" data-ja="誕生年、月、日は別々の整数として署名されるので、それぞれ単独で開示できます。年齢条件は、これらを開示せずに 512×年 + 32×月 + 日 に対する範囲証明で示します。" data-en="The birth year, month and day are signed as separate integers so that each of them can be disclosed alone. A condition of the age is proven by a range proof on 512*year + 32*month + day without disclosing them.">誕生年、月、日は別々の整数として署名されるので、それぞれ単独で開示できます。年齢条件は、これらを開示せずに 512×年 + 32×月 + 日 に対する範囲証明で示します。</p>
 
                 <button type="submit" class="btn" id="signBtn">
                     <span id="signLoading" class="loading" style="display: none;"></span>
@@ -156,7 +156,7 @@
         <!-- 証明生成タブ -->
         <div id="proof" class="tab-content">
             <h2 data-ja="選択的開示証明生成" data-en="Selective Disclosure Proof Generation">選択的開示証明生成</h2>
-            <p data-ja="個人情報の一部のみを開示する証明を生成します。生年月日は、開示せずに年齢条件 (18歳以上など) だけを証明することもできます。" data-en="Generate a proof that discloses only a portion of personal information. For the birth date, only a condition of the age (e.g. at least 18) can be proven without disclosing it.">個人情報の一部のみを開示する証明を生成します。生年月日は、開示せずに年齢条件 (18歳以上など) だけを証明することもできます。</p>
+            <p data-ja="個人情報の一部のみを開示する証明を生成します。誕生年、月、日は個別に開示でき、開示せずに年齢条件 (18歳以上など) だけを証明することもできます。" data-en="Generate a proof that discloses only a portion of personal information. The birth year, month and day can be disclosed separately, or only a condition of the age (e.g. at least 18) can be proven without disclosing them.">個人情報の一部のみを開示する証明を生成します。誕生年、月、日は個別に開示でき、開示せずに年齢条件 (18歳以上など) だけを証明することもできます。</p>
 
             <div id="proofInfo" class="info-grid">
                 <div class="info-card">

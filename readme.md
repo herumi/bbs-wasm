@@ -69,28 +69,35 @@ The serialized forms are `Uint8Array` (`serialize()` / `deserialize()`) or hex s
 
 ## Range predicates (extension)
 
-`proofGenEx` / `proofVerifyEx` take an array of predicates for undisclosed integer messages (`bigint` messages in `[0, 2^64)`).
+`proofGenEx` / `proofVerifyEx` take an array of predicates. A predicate is a range condition on a linear combination `x = sum of coef * msgs[idx]` of undisclosed integer messages (`bigint` messages in `[0, 2^64)`) with public coefficients.
 
 ```js
-// msgs = [name, birthday (YYYYMMDD), age, address]
-const msgs = [name, 19960320n, 30n, address]
+// msgs = [name, year, month, day, age, address]. the birthday is 1996/03/20
+const msgs = [name, 1996n, 3n, 20n, 30n, address]
 const sig = bbs.sign(sec, pub, msgs, header)
 
-// disclose the name and show that birthday <= 20081001 and 18 <= age <= 65
+// the birthday as x = 512 * year + 32 * month + day, which preserves the order of the dates
+const birthTerms = [{ idx: 1, coef: 512 }, { idx: 2, coef: 32 }, { idx: 3, coef: 1 }]
+const ymd = (y, m, d) => BigInt(y * 512 + m * 32 + d)
+// disclose the name and show that 18 <= age <= 65 and birthday <= 2008/10/01
 const discIdxs = new Uint32Array([0])
 const preds = [
-  { idx: 1, type: bbs.PRED_LE, bound: 20081001n, bitN: 25 },
-  { idx: 2, type: bbs.PRED_GE, bound: 18n, bitN: 8 },
-  { idx: 2, type: bbs.PRED_LE, bound: 65n, bitN: 8 }
+  { terms: [{ idx: 4, coef: 1 }], type: bbs.PRED_GE, bound: 18n, bitN: 8 },
+  { terms: [{ idx: 4, coef: 1 }], type: bbs.PRED_LE, bound: 65n, bitN: 8 },
+  { terms: birthTerms, type: bbs.PRED_LE, bound: ymd(2008, 10, 1), bitN: 17 }
 ]
 const proof = bbs.proofGenEx(pub, sig, msgs, discIdxs, preds, header, ph)
 console.log(bbs.proofVerifyEx(pub, proof, [msgs[0]], discIdxs, preds, header, ph)) // true
 ```
 
-- `idx` : index of the (undisclosed) message
-- `type` : `bbs.PRED_GE` (message >= bound) or `bbs.PRED_LE` (message <= bound)
+- `terms` : 1 to 8 terms `{ idx, coef }` with `idx` the index of an undisclosed integer message (strictly increasing) and `coef` an integer in `[1, 2^32)`
+- `type` : `bbs.PRED_GE` (x >= bound) or `bbs.PRED_LE` (x <= bound)
 - `bound` : `bigint` in `[0, 2^64)`
-- `bitN` : bit length of the range (`|message - bound| < 2^bitN`); the proof size grows linearly in the total of `bitN`
+- `bitN` : bit length of the range (`|x - bound| < 2^bitN`); the proof size grows linearly in the total of `bitN`
+
+The predicates must be sorted by `(terms.length, idx, coef, ...)` in lexicographic order. Predicates with the same `terms` share a commitment. The proof size is `getProofSize(undiscN) + 80 * (number of distinct terms) + sum of (144 * bitN - 48)`.
+
+Since the year, the month and the day are separate messages, each of them can be disclosed alone (e.g. only the month) while the age condition is proven on their combination (see `browser/demo.ts`).
 
 A proof created by `proofGenEx` is not a proof of the spec and is verified only by `proofVerifyEx`.
 

@@ -197,7 +197,7 @@ const proofTest = () => {
   assert.throws(() => { bbs.proofGen(pub, sig2, msgs, new Uint32Array([0, 3])) })
 }
 
-// range predicates for undisclosed integer messages (extension)
+// range predicates for linear combinations of undisclosed integer messages (extension)
 const predicateTest = () => {
   console.log('predicateTest')
   const sec = new bbs.SecretKey()
@@ -205,38 +205,46 @@ const predicateTest = () => {
   const pub = sec.getPublicKey()
   const header = strToUint8Array('header')
   const ph = strToUint8Array('ph')
-  // name, birthday (YYYYMMDD), age, address
-  const msgs: bbs.Msg[] = [strToUint8Array('alice'), 19960320n, 30n, strToUint8Array('tokyo')]
+  // name, year, month, day, age, address. the birthday is 1996/03/20
+  const msgs: bbs.Msg[] = [strToUint8Array('alice'), 1996n, 3n, 20n, 30n, strToUint8Array('tokyo')]
   const sig = bbs.sign(sec, pub, msgs, header)
   assert(bbs.verify(sig, pub, msgs, header))
   // an integer message is different from the octet string
-  assert(!bbs.verify(sig, pub, [msgs[0], strToUint8Array('19960320'), msgs[2], msgs[3]], header))
-  assert(!bbs.verify(sig, pub, [msgs[0], 19960321n, msgs[2], msgs[3]], header))
+  assert(!bbs.verify(sig, pub, [msgs[0], strToUint8Array('1996'), msgs[2], msgs[3], msgs[4], msgs[5]], header))
+  assert(!bbs.verify(sig, pub, [msgs[0], 1997n, msgs[2], msgs[3], msgs[4], msgs[5]], header))
 
   // an integer message can be disclosed by a proof of the spec
   {
-    const discIdxs = new Uint32Array([0, 2])
+    const discIdxs = new Uint32Array([0, 4])
     const prf = bbs.proofGen(pub, sig, msgs, discIdxs, header, ph)
     assert(bbs.proofVerify(pub, prf, [msgs[0], 30n], discIdxs, header, ph))
     assert(!bbs.proofVerify(pub, prf, [msgs[0], 31n], discIdxs, header, ph))
   }
 
-  // disclose the name and show that birthday <= 2008/10/01 and 18 <= age <= 65
+  // the birthday is x = 512 * year + 32 * month + day, which preserves the order of the dates
+  const birthTerms = [{ idx: 1, coef: 512 }, { idx: 2, coef: 32 }, { idx: 3, coef: 1 }]
+  const ymd = (y: number, m: number, d: number): bigint => BigInt(y * 512 + m * 32 + d)
+  // disclose the name and show that 18 <= age <= 65 and birthday <= 2008/10/01
+  // the predicates are sorted by (terms.length, idx, coef), so the age (one term) comes first
   const discIdxs = new Uint32Array([0])
   const discMsgs = [msgs[0]]
   const preds: bbs.Predicate[] = [
-    { idx: 1, type: bbs.PRED_LE, bound: 20081001n, bitN: 25 },
-    { idx: 2, type: bbs.PRED_GE, bound: 18n, bitN: 8 },
-    { idx: 2, type: bbs.PRED_LE, bound: 65n, bitN: 8 }
+    { terms: [{ idx: 4, coef: 1 }], type: bbs.PRED_GE, bound: 18n, bitN: 8 },
+    { terms: [{ idx: 4, coef: 1 }], type: bbs.PRED_LE, bound: 65n, bitN: 8 },
+    { terms: birthTerms, type: bbs.PRED_LE, bound: ymd(2008, 10, 1), bitN: 17 }
   ]
   const prf = bbs.proofGenEx(pub, sig, msgs, discIdxs, preds, header, ph)
-  assert.equal(prf.length, bbs.getProofExSize(3, preds))
-  assert.equal(prf.length, bbs.getProofSize(3) + 80 * 2 + 144 * (25 + 8 + 8) - 48 * 3)
+  assert.equal(prf.length, bbs.getProofExSize(5, preds))
+  // 2 commitments (the age and the birthday) and 8 + 8 + 17 bits
+  assert.equal(prf.length, bbs.getProofSize(5) + 80 * 2 + 144 * (8 + 8 + 17) - 48 * 3)
   assert(bbs.proofVerifyEx(pub, prf, discMsgs, discIdxs, preds, header, ph))
 
   // different predicates
-  const wrong = preds.map(p => ({ ...p }))
-  wrong[0].bound = 20081002n
+  const wrong = preds.map(p => ({ ...p, terms: p.terms.map(t => ({ ...t })) }))
+  wrong[2].bound = ymd(2008, 10, 2)
+  assert(!bbs.proofVerifyEx(pub, prf, discMsgs, discIdxs, wrong, header, ph))
+  wrong[2].bound = ymd(2008, 10, 1)
+  wrong[2].terms[1].coef = 33
   assert(!bbs.proofVerifyEx(pub, prf, discMsgs, discIdxs, wrong, header, ph))
   assert(!bbs.proofVerifyEx(pub, prf, discMsgs, discIdxs, preds.slice(0, 2), header, ph))
   // wrong ph, header, message
@@ -250,23 +258,53 @@ const predicateTest = () => {
   // it is not a proof of the spec
   assert(!bbs.proofVerify(pub, prf, discMsgs, discIdxs, header, ph))
 
+  // the boundary of the birthday
+  {
+    const le = (bound: bigint): bbs.Predicate[] => [{ terms: birthTerms, type: bbs.PRED_LE, bound, bitN: 17 }]
+    assert(bbs.proofGenEx(pub, sig, msgs, discIdxs, le(ymd(1996, 3, 20)), header, ph).length > 0)
+    assert.throws(() => { bbs.proofGenEx(pub, sig, msgs, discIdxs, le(ymd(1996, 3, 19)), header, ph) })
+  }
+  // two predicates on the same linear combination share the commitment
+  {
+    const p: bbs.Predicate[] = [
+      { terms: birthTerms, type: bbs.PRED_GE, bound: ymd(1960, 10, 2), bitN: 17 },
+      { terms: birthTerms, type: bbs.PRED_LE, bound: ymd(2008, 10, 1), bitN: 17 }
+    ]
+    const prf3 = bbs.proofGenEx(pub, sig, msgs, discIdxs, p, header, ph)
+    assert.equal(prf3.length, bbs.getProofSize(5) + 80 + (144 * 17 - 48) * 2)
+    assert(bbs.proofVerifyEx(pub, prf3, discMsgs, discIdxs, p, header, ph))
+  }
+
   // a predicate does not hold
-  assert.throws(() => { bbs.proofGenEx(pub, sig, msgs, discIdxs, [{ idx: 2, type: bbs.PRED_GE, bound: 31n, bitN: 8 }], header, ph) })
+  assert.throws(() => { bbs.proofGenEx(pub, sig, msgs, discIdxs, [{ terms: [{ idx: 4, coef: 1 }], type: bbs.PRED_GE, bound: 31n, bitN: 8 }], header, ph) })
   // the message of a predicate is disclosed
-  assert.throws(() => { bbs.proofGenEx(pub, sig, msgs, new Uint32Array([2]), [{ idx: 2, type: bbs.PRED_GE, bound: 18n, bitN: 8 }], header, ph) })
+  assert.throws(() => { bbs.proofGenEx(pub, sig, msgs, new Uint32Array([4]), [{ terms: [{ idx: 4, coef: 1 }], type: bbs.PRED_GE, bound: 18n, bitN: 8 }], header, ph) })
   // bad bitN
-  assert.throws(() => { bbs.proofGenEx(pub, sig, msgs, discIdxs, [{ idx: 2, type: bbs.PRED_GE, bound: 18n, bitN: 65 }], header, ph) })
+  assert.throws(() => { bbs.proofGenEx(pub, sig, msgs, discIdxs, [{ terms: [{ idx: 4, coef: 1 }], type: bbs.PRED_GE, bound: 18n, bitN: 65 }], header, ph) })
+  // bad terms
+  assert.throws(() => { bbs.getProofExSize(5, [{ terms: [], type: bbs.PRED_GE, bound: 18n, bitN: 8 }]) })
+  assert.throws(() => { bbs.getProofExSize(5, [{ terms: new Array(9).fill({ idx: 1, coef: 1 }), type: bbs.PRED_GE, bound: 18n, bitN: 8 }]) })
+  assert.throws(() => { bbs.getProofExSize(5, [{ terms: [{ idx: 4, coef: 0 }], type: bbs.PRED_GE, bound: 18n, bitN: 8 }]) })
+  assert.throws(() => { bbs.getProofExSize(5, [{ terms: [{ idx: 4, coef: 0x100000000 }], type: bbs.PRED_GE, bound: 18n, bitN: 8 }]) })
+  // idx must be strictly increasing
+  assert.equal(bbs.getProofExSize(5, [{ terms: [{ idx: 2, coef: 1 }, { idx: 1, coef: 1 }], type: bbs.PRED_GE, bound: 0n, bitN: 8 }]), 0)
+  // not sorted
+  assert.equal(bbs.getProofExSize(5, [preds[2], preds[0]]), 0)
   // bad integer
   assert.throws(() => { bbs.sign(sec, pub, [-1n]) })
   assert.throws(() => { bbs.sign(sec, pub, [1n << 64n]) })
-  // the max integer
+  // the max integer and a linear combination over 2^64
   {
     const max = (1n << 64n) - 1n
-    const sig2 = bbs.sign(sec, pub, [max])
-    const p = [{ idx: 0, type: bbs.PRED_GE, bound: max - 1n, bitN: 1 }]
+    const sig2 = bbs.sign(sec, pub, [max, max])
     const none = new Uint32Array([])
-    const prf3 = bbs.proofGenEx(pub, sig2, [max], none, p)
+    const p = [{ terms: [{ idx: 0, coef: 1 }], type: bbs.PRED_GE, bound: max - 1n, bitN: 1 }]
+    const prf3 = bbs.proofGenEx(pub, sig2, [max, max], none, p)
     assert(bbs.proofVerifyEx(pub, prf3, [], none, p))
+    // x = 2 * max = 2^65 - 2 and x - max = max < 2^64
+    const p2 = [{ terms: [{ idx: 0, coef: 1 }, { idx: 1, coef: 1 }], type: bbs.PRED_GE, bound: max, bitN: 64 }]
+    const prf4 = bbs.proofGenEx(pub, sig2, [max, max], none, p2)
+    assert(bbs.proofVerifyEx(pub, prf4, [], none, p2))
   }
 }
 

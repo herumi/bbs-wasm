@@ -24,8 +24,10 @@ declare global {
 /*
   signed messages
   str : octet string (hashed to a scalar)
-  int : integer (used for the range proof)
-  The birth date is an integer YYYYMMDD so that the order of the integers is the order of the dates.
+  int : integer (can be used for the range proof)
+  The year, the month and the day of the birthday are signed as separate integers so that each of them can be disclosed alone.
+  The age condition is a range predicate on the linear combination 512 * year + 32 * month + day,
+  which preserves the order of the dates.
 */
 const FIELDS: { key: string, kind: 'str' | 'int' }[] = [
   { key: 'lastName', kind: 'str' },
@@ -34,18 +36,26 @@ const FIELDS: { key: string, kind: 'str' | 'int' }[] = [
   { key: 'prefecture', kind: 'str' },
   { key: 'city', kind: 'str' },
   { key: 'address', kind: 'str' },
-  { key: 'birthDate', kind: 'int' }
+  { key: 'birthYear', kind: 'int' },
+  { key: 'birthMonth', kind: 'int' },
+  { key: 'birthDay', kind: 'int' }
 ]
-const BIRTH_IDX = 6
-// the difference of two integers of the form YYYYMMDD is less than 2^25
-const BIRTH_BIT_N = 25
+const BIRTH_YEAR_IDX = 6
+const BIRTH_MONTH_IDX = 7
+const BIRTH_DAY_IDX = 8
+const BIRTH_IDXS = [BIRTH_YEAR_IDX, BIRTH_MONTH_IDX, BIRTH_DAY_IDX]
+// x = 512 * year + 32 * month + day
+const BIRTH_TERMS = [{ idx: BIRTH_YEAR_IDX, coef: 512 }, { idx: BIRTH_MONTH_IDX, coef: 32 }, { idx: BIRTH_DAY_IDX, coef: 1 }]
+// |x - bound| < 2^17 for dates within 256 years of the bound
+const BIRTH_BIT_N = 17
 const MAX_AGE = 150
 
 // how to show a message in a proof
-type Selection = 'disclose' | 'hide' | 'predicate'
+type Selection = 'disclose' | 'hide'
 
-// condition of the age proved without disclosing the birth date
+// condition of the age proved without disclosing the birthday
 interface AgeCond {
+  use: boolean
   useMin: boolean
   minAge: number
   useMax: boolean
@@ -72,7 +82,7 @@ let g_nonce: Uint8Array | null = null
 let g_curLang: 'ja' | 'en' = 'ja'
 let g_selections: Selection[] = []
 // the condition selected in the proof generation tab
-const g_ageCond: AgeCond = { useMin: true, minAge: 18, useMax: false, maxAge: 65 }
+const g_ageCond: AgeCond = { use: false, useMin: true, minAge: 18, useMax: false, maxAge: 65 }
 // the condition of the generated proof (null if the proof has no predicate)
 let g_proofAgeCond: AgeCond | null = null
 // the condition used to verify the proof (editable for testing)
@@ -91,6 +101,9 @@ const translations: Translations = {
     city: '群市町村',
     address: '住所',
     birthDate: '生年月日',
+    birthYear: '誕生年',
+    birthMonth: '誕生月',
+    birthDay: '誕生日 (日)',
 
     // gender
     male: '男',
@@ -101,7 +114,9 @@ const translations: Translations = {
     // disclosure
     disclose: '開示する',
     hide: '開示しない',
-    proveAge: '年齢条件だけ証明する',
+    ageCondTitle: '年齢条件',
+    proveAge: '年齢条件を証明する',
+    ageHidesBirth: '年齢条件を証明するときは誕生年・月・日は開示されません。',
     ageMinPrefix: '',
     ageMinSuffix: '歳以上',
     ageMaxPrefix: '',
@@ -156,6 +171,9 @@ const translations: Translations = {
     city: 'City',
     address: 'Address',
     birthDate: 'Birth Date',
+    birthYear: 'Birth Year',
+    birthMonth: 'Birth Month',
+    birthDay: 'Birth Day',
 
     // gender
     male: 'Male',
@@ -166,7 +184,9 @@ const translations: Translations = {
     // disclosure
     disclose: 'Disclose',
     hide: 'Hide',
-    proveAge: 'Prove only the age condition',
+    ageCondTitle: 'Age condition',
+    proveAge: 'Prove the age condition',
+    ageHidesBirth: 'The birth year, month and day are hidden while the age condition is proven.',
     ageMinPrefix: 'Age at least',
     ageMinSuffix: '',
     ageMaxPrefix: 'Age at most',
@@ -286,16 +306,14 @@ function escapeHtml (s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
-// integer YYYYMMDD
+// the value of BIRTH_TERMS for a date (the bound of a predicate)
 function ymd (y: number, m: number, d: number): bigint {
-  return BigInt(y * 10000 + m * 100 + d)
+  return BigInt(y * 512 + m * 32 + d)
 }
 
-// 19960320n -> '1996/03/20'
-function formatYmd (v: bigint): string {
-  const s = v.toString().padStart(8, '0')
-  const n = s.length
-  return `${s.substring(0, n - 4)}/${s.substring(n - 4, n - 2)}/${s.substring(n - 2)}`
+// (1996, 3, 20) -> '1996/03/20'
+function formatYmd (y: number, m: number, d: number): string {
+  return `${y}/${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}`
 }
 
 function today (): YMD {
@@ -303,14 +321,8 @@ function today (): YMD {
   return { y: now.getFullYear(), m: now.getMonth() + 1, d: now.getDate() }
 }
 
-// string to show a message
+// string to show or edit a message
 function msgToString (msg: Msg, index: number): string {
-  if (FIELDS[index].kind === 'int') return formatYmd(msg as bigint)
-  return uint8ArrayToString(msg as Uint8Array)
-}
-
-// string to edit a message
-function msgToEditString (msg: Msg, index: number): string {
   if (FIELDS[index].kind === 'int') return (msg as bigint).toString()
   return uint8ArrayToString(msg as Uint8Array)
 }
@@ -332,19 +344,21 @@ function isValidAge (age: number): boolean {
 }
 
 /*
-  predicates for the condition of the age on the reference date
-  age >= N : birthDate <= ymd(Y - N, M, D)
-  age <= N : the person is not N + 1 years old yet, so birthDate > ymd(Y - N - 1, M, D)
-  The bounds are compared as integers, so they need not be real dates.
+  predicates for the condition of the age on the reference date (Y, M, D)
+  x = 512 * year + 32 * month + day of the birthday
+  age >= N : x <= ymd(Y - N, M, D)
+  age <= N : the person is not N + 1 years old yet, so x > ymd(Y - N - 1, M, D)
+  The bounds are compared as integers, so they need not be real dates
+  (ymd(...) + 1n is the next integer and no real date lies between them).
   The order of the predicates must be the same in the generation and the verification.
 */
 function makeAgePreds (cond: AgeCond, base: YMD) {
   const preds = []
   if (cond.useMin) {
-    preds.push({ idx: BIRTH_IDX, type: bbs.PRED_LE, bound: ymd(base.y - cond.minAge, base.m, base.d), bitN: BIRTH_BIT_N })
+    preds.push({ terms: BIRTH_TERMS, type: bbs.PRED_LE, bound: ymd(base.y - cond.minAge, base.m, base.d), bitN: BIRTH_BIT_N })
   }
   if (cond.useMax) {
-    preds.push({ idx: BIRTH_IDX, type: bbs.PRED_GE, bound: ymd(base.y - cond.maxAge - 1, base.m, base.d) + 1n, bitN: BIRTH_BIT_N })
+    preds.push({ terms: BIRTH_TERMS, type: bbs.PRED_GE, bound: ymd(base.y - cond.maxAge - 1, base.m, base.d) + 1n, bitN: BIRTH_BIT_N })
   }
   return preds
 }
@@ -358,12 +372,10 @@ function ageText (prefix: string, age: number, suffix: string): string {
 function describeAgeCond (cond: AgeCond, base: YMD): string[] {
   const lines = []
   if (cond.useMin) {
-    const bound = ymd(base.y - cond.minAge, base.m, base.d)
-    lines.push(`${t('birthDate')} ≤ ${formatYmd(bound)} (${ageText(t('ageMinPrefix'), cond.minAge, t('ageMinSuffix'))})`)
+    lines.push(`${t('birthDate')} ≤ ${formatYmd(base.y - cond.minAge, base.m, base.d)} (${ageText(t('ageMinPrefix'), cond.minAge, t('ageMinSuffix'))})`)
   }
   if (cond.useMax) {
-    const bound = ymd(base.y - cond.maxAge - 1, base.m, base.d) + 1n
-    lines.push(`${t('birthDate')} ≥ ${formatYmd(bound)} (${ageText(t('ageMaxPrefix'), cond.maxAge, t('ageMaxSuffix'))})`)
+    lines.push(`${t('birthDate')} > ${formatYmd(base.y - cond.maxAge - 1, base.m, base.d)} (${ageText(t('ageMaxPrefix'), cond.maxAge, t('ageMaxSuffix'))})`)
   }
   return lines
 }
@@ -477,12 +489,15 @@ async function generateSignature (event: Event): Promise<void> {
       stringToUint8Array(getValue('prefecture')),
       stringToUint8Array(getValue('city')),
       stringToUint8Array(getValue('address')),
-      ymd(birthYear, birthMonth, birthDay)
+      BigInt(birthYear),
+      BigInt(birthMonth),
+      BigInt(birthDay)
     ]
     g_orgMsgs = cloneMsgs(g_msgs)
 
     // disclose all messages by default
     g_selections = new Array(g_msgs.length).fill('disclose')
+    g_ageCond.use = false
 
     g_sig = bbs.sign(g_sec, g_pub, g_msgs)
 
@@ -558,10 +573,10 @@ async function generateProof (): Promise<void> {
       }
     }
 
-    // predicates for the age
+    // predicates for the age (the year, the month and the day are hidden)
     const base = today()
     let preds = []
-    if (g_selections[BIRTH_IDX] === 'predicate') {
+    if (g_ageCond.use) {
       if (!g_ageCond.useMin && !g_ageCond.useMax) {
         alert(t('ageCondRequired'))
         return
@@ -723,8 +738,8 @@ function updateVerifyInfo (): void {
     const isInt = FIELDS[index].kind === 'int'
     html += `
             <div class="edit-field">
-                <label for="verify_edit_${index}">${fieldName(index)}${isInt ? ' (YYYYMMDD)' : ''}</label>
-                <input type="${isInt ? 'number' : 'text'}" id="verify_edit_${index}" value="${escapeHtml(msgToEditString(msg, index))}"
+                <label for="verify_edit_${index}">${fieldName(index)}</label>
+                <input type="${isInt ? 'number' : 'text'}" id="verify_edit_${index}" value="${escapeHtml(msgToString(msg, index))}"
                        onchange="updateVerifyMessage(${index}, this.value)">
             </div>
         `
@@ -743,9 +758,9 @@ function updateAgeStatement (): void {
   const ageCond = document.getElementById('ageCond') as HTMLElement
   const baseDate = document.getElementById('ageBaseDate') as HTMLElement
   const statement = document.getElementById('ageStatement') as HTMLElement
-  if (ageCond) ageCond.style.display = g_selections[BIRTH_IDX] === 'predicate' ? 'block' : 'none'
+  if (ageCond) ageCond.style.display = g_ageCond.use ? 'block' : 'none'
   const base = today()
-  if (baseDate) baseDate.textContent = formatYmd(ymd(base.y, base.m, base.d))
+  if (baseDate) baseDate.textContent = formatYmd(base.y, base.m, base.d)
   if (statement) {
     if (!isValidAgeCond(g_ageCond)) {
       statement.textContent = t('badAge')
@@ -766,23 +781,36 @@ function updateProofInfo (): void {
   if (proofMessages) proofMessages.innerHTML = makeMsgListHtml(g_msgs, allIdxs())
 
   // controls to select how to show each message
+  // the year, the month and the day are forced to be hidden while the age condition is proven
   let html = ''
   g_msgs.forEach((msg, index) => {
     const sel = g_selections[index]
+    const disabled = g_ageCond.use && BIRTH_IDXS.includes(index)
     const radio = (value: Selection, label: string): string => `
                 <label>
-                    <input type="radio" name="disclose_${index}" value="${value}" ${sel === value ? 'checked' : ''}>
+                    <input type="radio" name="disclose_${index}" value="${value}" ${sel === value ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
                     ${label}
                 </label>`
+    const hidden = sel !== 'disclose'
     html += `
-            <div class="disclosure-item${index === BIRTH_IDX ? ' wide' : ''}">
+            <div class="disclosure-item">
                 <h4>${fieldName(index)}</h4>
                 ${radio('disclose', t('disclose'))}
-                ${radio('hide', t('hide'))}`
-    if (index === BIRTH_IDX) {
-      html += `
-                ${radio('predicate', t('proveAge'))}
+                ${radio('hide', t('hide'))}
+                <div class="field-value ${hidden ? 'hidden' : ''}">${escapeHtml(selectionValueText(index))}</div>
+            </div>
+        `
+  })
+  // the age condition on the birthday (the last item)
+  html += `
+            <div class="disclosure-item wide">
+                <h4>${t('ageCondTitle')}</h4>
+                <label>
+                    <input type="checkbox" id="ageUse" ${g_ageCond.use ? 'checked' : ''}>
+                    ${t('proveAge')}
+                </label>
                 <div id="ageCond" class="age-cond">
+                    <div>${t('ageHidesBirth')}</div>
                     <label>
                         <input type="checkbox" id="ageMinUse" ${g_ageCond.useMin ? 'checked' : ''}>
                         ${t('ageMinPrefix')}
@@ -798,14 +826,9 @@ function updateProofInfo (): void {
                     <div>${t('baseDate')}: <span id="ageBaseDate"></span></div>
                     <div>${t('statement')}:</div>
                     <div id="ageStatement" class="age-statement"></div>
-                </div>`
-    }
-    const hidden = sel !== 'disclose'
-    html += `
-                <div class="field-value ${hidden ? 'hidden' : ''}">${escapeHtml(selectionValueText(index))}</div>
+                </div>
             </div>
         `
-  })
   if (disclosureControls) {
     disclosureControls.innerHTML = html
     disclosureControls.style.display = 'grid'
@@ -822,10 +845,21 @@ function updateProofInfo (): void {
           fieldValue.textContent = selectionValueText(index)
           fieldValue.classList.toggle('hidden', g_selections[index] !== 'disclose')
         }
-        if (index === BIRTH_IDX) updateAgeStatement()
       })
     })
   })
+
+  // whether to prove the age condition. the birthday fields are hidden when it is on
+  const ageUse = document.getElementById('ageUse') as HTMLInputElement
+  if (ageUse) {
+    ageUse.addEventListener('change', () => {
+      g_ageCond.use = ageUse.checked
+      if (g_ageCond.use) {
+        BIRTH_IDXS.forEach(index => { g_selections[index] = 'hide' })
+      }
+      updateProofInfo()
+    })
+  }
 
   // inputs of the age condition
   const bind = (id: string, handler: (e: HTMLInputElement) => void): void => {
@@ -859,7 +893,7 @@ function updateProofVerifyPreds (): void {
       html += `<div>${escapeHtml(line)}</div>`
     })
   }
-  html += `<div>${t('baseDate')}: ${formatYmd(ymd(g_baseDate.y, g_baseDate.m, g_baseDate.d))}</div>`
+  html += `<div>${t('baseDate')}: ${formatYmd(g_baseDate.y, g_baseDate.m, g_baseDate.d)}</div>`
   proofVerifyPreds.innerHTML = html
 }
 
@@ -880,8 +914,8 @@ function updateProofVerifyInfo (): void {
     const isInt = FIELDS[index].kind === 'int'
     html += `
             <div class="edit-field">
-                <label for="proof_verify_edit_${i}">${fieldName(index)}${isInt ? ' (YYYYMMDD)' : ''}</label>
-                <input type="${isInt ? 'number' : 'text'}" id="proof_verify_edit_${i}" value="${escapeHtml(msgToEditString(g_discMsgs[i], index))}"
+                <label for="proof_verify_edit_${i}">${fieldName(index)}</label>
+                <input type="${isInt ? 'number' : 'text'}" id="proof_verify_edit_${i}" value="${escapeHtml(msgToString(g_discMsgs[i], index))}"
                        onchange="updateProofVerifyMessage(${i}, this.value)">
             </div>
         `

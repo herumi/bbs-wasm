@@ -437,7 +437,7 @@ export type Msg = Uint8Array | bigint
 // size of mclBnFr in the wasm memory
 const BBS_FR_SIZE = 32
 // size of bbsPredicate in the wasm memory
-const BBS_PREDICATE_SIZE = 24
+const BBS_PREDICATE_SIZE = 88
 
 // copy a to the stack and return [pos, size]. [0, 0] if a is not specified
 const sallocBytes = (a?: Uint8Array): [number, number] => {
@@ -578,16 +578,24 @@ export const proofVerify = (pub: PublicKey, proof: Uint8Array, discMsgs: Msg[], 
 
 /*
   extension which is not defined in the spec
-  predicate for an undisclosed integer message m = msgs[idx]
-  PRED_GE : 0 <= m - bound < 2^bitN
-  PRED_LE : 0 <= bound - m < 2^bitN
-  1 <= bitN <= 64
+  predicate for a linear combination x = sum of coef * msgs[idx] over terms
+  of undisclosed integer messages with public coefficients
+  PRED_GE : 0 <= x - bound < 2^bitN
+  PRED_LE : 0 <= bound - x < 2^bitN
+  1 <= terms.length <= PRED_MAX_TERM, 1 <= coef < 2^32, idx is strictly increasing, 1 <= bitN <= 64
+  e.g. the birthday by the signed year, month and day : terms = [{ idx: iy, coef: 512 }, { idx: im, coef: 32 }, { idx: id, coef: 1 }]
 */
 export const PRED_GE = 0
 export const PRED_LE = 1
+export const PRED_MAX_TERM = 8
+
+export interface PredTerm {
+  idx: number
+  coef: number
+}
 
 export interface Predicate {
-  idx: number
+  terms: PredTerm[]
   type: number
   bound: bigint
   bitN: number
@@ -599,15 +607,30 @@ const sallocPreds = (preds: Predicate[]): number => {
   for (let i = 0; i < preds.length; i++) {
     const p = preds[i]
     if (p.bound < 0n || p.bound >= (1n << 64n)) throw new Error(`bad bound ${p.bound}`)
-    // struct { uint64_t bound; uint32_t idx, type, bitN, reserved; }
+    const termN = p.terms.length
+    if (termN === 0 || termN > PRED_MAX_TERM) throw new Error(`bad terms.length ${termN}`)
+    // struct { uint64_t bound; uint32_t coef[8], idx[8], termN, type, bitN, reserved; }
     const q = (pos + i * BBS_PREDICATE_SIZE) >> 2
     const H = mod.HEAP32
     H[q] = Number(p.bound & 0xffffffffn)
     H[q + 1] = Number(p.bound >> 32n)
-    H[q + 2] = p.idx
-    H[q + 3] = p.type
-    H[q + 4] = p.bitN
-    H[q + 5] = 0
+    for (let k = 0; k < PRED_MAX_TERM; k++) {
+      let coef = 0
+      let idx = 0
+      if (k < termN) {
+        coef = p.terms[k].coef
+        idx = p.terms[k].idx
+        if (!(Number.isInteger(coef) && coef >= 1 && coef < 0x100000000)) throw new Error(`bad coef ${coef}`)
+        if (!(Number.isInteger(idx) && idx >= 0 && idx < 0x100000000)) throw new Error(`bad idx ${idx}`)
+      }
+      H[q + 2 + k] = coef
+      H[q + 2 + PRED_MAX_TERM + k] = idx
+    }
+    const r = q + 2 + PRED_MAX_TERM * 2
+    H[r] = termN
+    H[r + 1] = p.type
+    H[r + 2] = p.bitN
+    H[r + 3] = 0
   }
   return pos
 }
@@ -623,7 +646,8 @@ export const getProofExSize = (undiscN: number, preds: Predicate[]): number => {
 
 /*
   generate proof with predicates
-  preds: predicates sorted by idx. idx must be an index of an undisclosed message
+  preds: predicates sorted by the linear combination (terms.length, idx, coef, ...) in lexicographic order.
+         Predicates with the same terms share a commitment. idx must be an index of an undisclosed message
   the other parameters are the same as proofGen
   an exception is thrown if a predicate does not hold
 */
