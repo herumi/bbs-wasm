@@ -65,6 +65,8 @@ async function main () {
 main()
 ```
 
+See [api.md](api.md) for the full API reference.
+
 The serialized forms are `Uint8Array` (`serialize()` / `deserialize()`) or hex strings (`serializeToHexStr()` / `deserializeHexStr()`, `bbs.deserializeHexStrToSecretKey()` etc.).
 
 ## Range predicates (extension)
